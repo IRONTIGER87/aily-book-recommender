@@ -12,7 +12,7 @@ st.set_page_config(
     layout="centered"
 )
 
-# [설정] 구글 스프레드시트 CSV 링크 (아까 주신 링크)
+# [설정] 구글 스프레드시트 CSV 링크
 SHEET_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vSaXBhEqbAxaH2cF6kjW8tXoNLC8Xb430gB9sb_xMjT5HvSe--sXDGUGp-aAOGrU3lQPjZUA2Tu9OlS/pub?gid=0&single=true&output=csv"
 
 # -------------------------------------------------
@@ -63,7 +63,6 @@ st.markdown("""
 # 4. 헬퍼 함수: AILY 이미지 표시
 # -------------------------------------------------
 def show_aily_image(state):
-    # 이미지 파일이 없으면 이모지로 대체하는 안전장치
     try:
         if state == "idle":
             st.image("aily_idle.png", use_container_width=True)
@@ -72,7 +71,6 @@ def show_aily_image(state):
         elif state == "happy":
             st.image("aily_happy.png", use_container_width=True)
     except:
-        # 이미지가 없을 경우 텍스트 이모지로 대체
         if state == "idle": st.write("# 🤖✨")
         elif state == "thinking": st.write("# 🤖🌀")
         elif state == "happy": st.write("# 🤖💖")
@@ -115,7 +113,7 @@ st.subheader("📍 오늘의 기분을 골라주세요!")
 if not df.empty and '카테고리' in df.columns:
     categories = df['카테고리'].unique().tolist()
     
-    # 라디오 버튼
+    # 라디오 버튼 (key='category_input'으로 세션에 저장됨)
     user_choice = st.radio(
         "카테고리를 선택하면 AILY가 움직여요!",
         categories,
@@ -128,7 +126,6 @@ if not df.empty and '카테고리' in df.columns:
         if st.button("책 찾아오기 (클릭!)"):
             st.session_state.status = "thinking"
             
-            # 실제 생각하는 듯한 대기 시간
             with st.spinner('AILY가 서가에서 열심히 뛰어다니는 중... 🏃💨'):
                 time.sleep(1.2)
             
@@ -136,7 +133,7 @@ if not df.empty and '카테고리' in df.columns:
             filtered_books = df[df['카테고리'] == user_choice]
             candidates = filtered_books.to_dict('records')
 
-            # 직전 추천 도서 제외 (후보가 2개 이상일 때만)
+            # 직전 추천 도서 제외
             if len(candidates) > 1 and st.session_state.last_book:
                 candidates = [b for b in candidates if b['도서명'] != st.session_state.last_book]
 
@@ -145,7 +142,7 @@ if not df.empty and '카테고리' in df.columns:
                 st.session_state.result = selected_book
                 st.session_state.last_book = selected_book['도서명']
                 st.session_state.status = "happy"
-                st.rerun() # 화면 갱신
+                st.rerun()
             else:
                 st.warning("어라? 해당 카테고리에 책이 없네요 ㅠㅠ")
                 st.session_state.status = "idle"
@@ -161,10 +158,9 @@ if st.session_state.status == "happy" and st.session_state.result:
     
     st.success(f"### 🎯 AILY가 찾은 '인생 책'!")
     
-    # 결과 박스 (요청하신 스타일)
+    # 결과 박스
     container = st.container(border=True)
     
-    # 안전하게 데이터 가져오기 (.get 사용)
     title = st.session_state.result.get('도서명', '제목 없음')
     author = st.session_state.result.get('저자', '저자 미상')
     comment = st.session_state.result.get('한마디', '코멘트 없음')
@@ -178,10 +174,35 @@ if st.session_state.status == "happy" and st.session_state.result:
         "다 읽으시면 저한테 꼭 후기 알려주셔야 해요! 약속~! 🤗✨"
     )
 
-    # 다시 하기 버튼
+    # -----------------------------------------------------------
+    # [수정된 부분] 버튼 클릭 시 같은 카테고리에서 다시 뽑기
+    # -----------------------------------------------------------
     if st.button("다른 책도 추천해줘! (새로고침)"):
-        st.session_state.status = "idle" # 상태 초기화
-        st.rerun()
+        # 1. 현재 선택된 카테고리 가져오기
+        current_cat = st.session_state.get("category_input")
+        
+        if current_cat and not df.empty:
+            # 2. 로직 재실행 (필터링 및 추첨)
+            filtered_books = df[df['카테고리'] == current_cat]
+            candidates = filtered_books.to_dict('records')
+
+            # 직전 추천 도서 제외 (연속 중복 방지)
+            if len(candidates) > 1 and st.session_state.last_book:
+                candidates = [b for b in candidates if b['도서명'] != st.session_state.last_book]
+
+            if candidates:
+                new_book = random.choice(candidates)
+                st.session_state.result = new_book
+                st.session_state.last_book = new_book['도서명']
+                # 상태는 'happy' 그대로 유지
+                st.session_state.status = "happy"
+                st.rerun()
+            else:
+                st.warning("이 카테고리에는 더 이상 추천할 책이 없어요!")
+        else:
+            # 혹시라도 카테고리 선택이 풀렸다면 초기화
+            st.session_state.status = "idle"
+            st.rerun()
 
 elif st.session_state.status == "idle":
     st.info("AILY: 이용자님! 메뉴에서 하나만 골라주세요! 제가 바로 달려갈 준비 완료됐거든요! 😤")
