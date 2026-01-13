@@ -64,17 +64,17 @@ if "status" not in st.session_state:
     st.session_state.status = "idle"  # idle | thinking | happy
 
 # -------------------------------------------------
-# 5. 캐릭터 출력 함수
+# 5. 캐릭터 출력 함수 (이미지 기반)
 # -------------------------------------------------
 def show_aily(state: str):
     if state == "idle":
-        st.write("🤖✨")
+        st.image("aily_idle.png", use_container_width=True)
         st.caption("AILY 대기 중…")
     elif state == "thinking":
-        st.write("🤖💭")
+        st.image("aily_thinking.png", use_container_width=True)
         st.caption("AILY 생각 중…")
     elif state == "happy":
-        st.write("🤖🎉")
+        st.image("aily_happy.png", use_container_width=True)
         st.caption("추천 완료!")
 
 # -------------------------------------------------
@@ -102,7 +102,8 @@ st.subheader("📍 오늘의 기분을 골라주세요!")
 choice = st.radio(
     "카테고리를 선택하세요",
     list(book_db.keys()),
-    index=None
+    index=None,
+    key="category_radio"
 )
 
 if choice:
@@ -146,7 +147,7 @@ if st.session_state.result:
         st.session_state.status = "thinking"
         st.rerun()
 
-# ------------------------------------------------
+# -------------------------------------------------
 # 10. 아무 선택도 안 했을 때
 # -------------------------------------------------
 if st.session_state.status == "idle":
