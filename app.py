@@ -1,160 +1,119 @@
 import streamlit as st
+import pandas as pd
 import random
 import time
 
 # -------------------------------------------------
-# 1. 페이지 기본 설정
+# 1. 설정 및 데이터 로드
 # -------------------------------------------------
-st.set_page_config(
-    page_title="귀염둥이 사서 AILY의 추천",
-    page_icon="✨",
-    layout="centered"
-)
+st.set_page_config(page_title="AILY의 도서 추천", page_icon="✨", layout="centered")
+
+# [중요] 여기에 단계 1에서 복사한 CSV 링크를 붙여넣으세요.
+SHEET_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vSaXBhEqbAxaH2cF6kjW8tXoNLC8Xb430gB9sb_xMjT5HvSe--sXDGUGp-aAOGrU3lQPjZUA2Tu9OlS/pub?gid=0&single=true&output=csv"
+
+# 데이터 캐싱 (새로고침 시 서버 부하를 줄임, 1분마다 갱신)
+@st.cache_data(ttl=60)
+def load_data():
+    try:
+        # 구글 시트 CSV 읽어오기
+        df = pd.read_csv(SHEET_URL)
+        return df
+    except Exception as e:
+        st.error(f"데이터를 불러오는데 실패했어요: {e}")
+        return pd.DataFrame()
 
 # -------------------------------------------------
-# 2. 커스텀 CSS
+# 2. 스타일 및 함수
 # -------------------------------------------------
 st.markdown("""
 <style>
-.main {
-    background-color: #f0f2f6;
-}
 .stButton > button {
-    width: 100%;
-    border-radius: 20px;
-    height: 3em;
-    background-color: #4A90E2;
-    color: white;
-    font-weight: bold;
+    width: 100%; border-radius: 15px; background-color: #4A90E2; color: white;
 }
 </style>
 """, unsafe_allow_html=True)
 
-# -------------------------------------------------
-# 3. 도서 데이터베이스
-# -------------------------------------------------
-book_db = {
-    "포근한 위로가 필요해 (힐링)": [
-        {"title": "불편한 편의점", "author": "김호연", "comment": "마음이 말랑말랑해지는 기적이 일어날 거예요!"},
-        {"title": "메리골드 마음 세탁소", "author": "윤정은", "comment": "슬픈 기억은 제가 싹~ 세탁해 드릴게요!"},
-        {"title": "보노보노처럼 살다니 다행이야", "author": "김신회", "comment": "서툴러도 괜찮아요, 우리 천천히 가요!"}
-    ],
-    "갓생 살고 싶어! (자기계발)": [
-        {"title": "원씽", "author": "게리 켈러", "comment": "딱 하나에만 집중! 선배님은 할 수 있어요!"},
-        {"title": "역행자", "author": "자청", "comment": "운명의 자동장치를 해체하러 가볼까요?"},
-        {"title": "아주 작은 습관의 힘", "author": "제임스 클리어", "comment": "매일 1%씩만 성장해봐요!"}
-    ],
-    "미래가 궁금해 (IT/과학)": [
-        {"title": "AI 2041", "author": "리 카이푸", "comment": "우리가 살게 될 미래를 함께 엿봐요!"},
-        {"title": "하늘과 바람과 별과 인간", "author": "김상욱", "comment": "우주는 정말 신비로워요!"},
-        {"title": "도둑맞은 집중력", "author": "요한 하리", "comment": "집중력을 같이 되찾아볼까요?"}
-    ]
-}
+def show_aily(state):
+    # 이미지는 app.py와 같은 폴더에 있어야 합니다.
+    # 만약 이미지가 없다면 에러 방지를 위해 텍스트로 대체하거나 try-except 처리 필요
+    try:
+        if state == "idle":
+            st.image("aily_idle.png", use_container_width=True)
+            st.caption("대기 중...")
+        elif state == "thinking":
+            st.image("aily_thinking.png", use_container_width=True)
+            st.caption("생각 중...")
+        elif state == "happy":
+            st.image("aily_happy.png", use_container_width=True)
+            st.caption("찾았다!")
+    except:
+        st.warning("이미지 파일(aily_idle.png 등)이 같은 폴더에 있는지 확인해주세요.")
 
 # -------------------------------------------------
-# 4. 세션 상태 초기화
+# 3. 상태 관리 초기화
 # -------------------------------------------------
-if "choice" not in st.session_state:
-    st.session_state.choice = None
-
+if "status" not in st.session_state:
+    st.session_state.status = "idle"
 if "result" not in st.session_state:
     st.session_state.result = None
-
-if "status" not in st.session_state:
-    st.session_state.status = "idle"  # idle | thinking | happy
-
-# -------------------------------------------------
-# 5. 캐릭터 출력 함수 (이미지 기반)
-# -------------------------------------------------
-def show_aily(state: str):
-    if state == "idle":
-        st.image("aily_idle.png", use_container_width=True)
-        st.caption("AILY 대기 중…")
-    elif state == "thinking":
-        st.image("aily_thinking.png", use_container_width=True)
-        st.caption("AILY 생각 중…")
-    elif state == "happy":
-        st.image("aily_happy.png", use_container_width=True)
-        st.caption("추천 완료!")
+if "last_book" not in st.session_state:
+    st.session_state.last_book = None # 직전 추천 도서 저장용
 
 # -------------------------------------------------
-# 6. 메인 화면
+# 4. 메인 로직
 # -------------------------------------------------
-st.title("🌟 AILY의 반짝반짝 도서 추천")
+st.title("🌟 AILY의 추천도서")
 st.write("---")
 
-col_char, col_chat = st.columns([1, 2])
+df = load_data()
 
-with col_char:
+col1, col2 = st.columns([1, 2])
+with col1:
     show_aily(st.session_state.status)
+with col2:
+    st.info("안녕하세요! 실시간으로 추천 도서를 가져올게요.")
 
-with col_chat:
-    st.chat_message("assistant").write(
-        "**AILY:** 선배님 안녕하세요! "
-        "오늘 기분에 딱 맞는 책을 제가 직접 골라드릴게요!"
-    )
+# 카테고리 선택
+categories = df['카테고리'].unique().tolist() if not df.empty else []
+choice = st.radio("기분을 선택하세요:", categories, horizontal=True)
 
-# -------------------------------------------------
-# 7. 사용자 선택
-# -------------------------------------------------
-st.subheader("📍 오늘의 기분을 골라주세요!")
-
-choice = st.radio(
-    "카테고리를 선택하세요",
-    list(book_db.keys()),
-    index=None,
-    key="category_radio"
-)
-
-if choice:
-    if st.session_state.choice != choice:
-        st.session_state.choice = choice
-        st.session_state.result = None
+# 추천 버튼
+if st.button("책 추천받기 📚"):
+    if df.empty:
+        st.error("데이터가 비어있습니다. 데이터 링크를 확인해주세요.")
+    else:
         st.session_state.status = "thinking"
+        
+        # '생각 중' 효과를 위한 임시 렌더링 (st.rerun 대신 sleep 활용)
+        with st.spinner("서가 뒤지는 중..."):
+            time.sleep(1.2)
+        
+        # 1. 해당 카테고리 책만 필터링
+        filtered_books = df[df['카테고리'] == choice]
+        
+        # 2. 직전 추천 도서 제외 로직 (핵심)
+        # 만약 책이 1권뿐이라면 제외하지 않음 (무한루프 방지)
+        candidates = filtered_books.to_dict('records')
+        
+        if len(candidates) > 1 and st.session_state.last_book:
+            candidates = [book for book in candidates if book['도서명'] != st.session_state.last_book]
 
-# -------------------------------------------------
-# 8. 추천 생성 (thinking 유지 → 결과 시 happy)
-# -------------------------------------------------
-if st.session_state.status == "thinking" and st.session_state.result is None:
-    with st.spinner("AILY가 서가에서 열심히 책을 찾고 있어요..."):
-        time.sleep(1.5)
-
-    st.session_state.result = random.choice(
-        book_db[st.session_state.choice]
-    )
-    st.session_state.status = "happy"
-    st.rerun()
-
-# -------------------------------------------------
-# 9. 결과 출력
-# -------------------------------------------------
-if st.session_state.result:
-    st.balloons()
-
-    st.success("### 🎯 AILY의 추천 도서!")
-
-    box = st.container(border=True)
-    box.write(f"📖 **도서명:** {st.session_state.result['title']}")
-    box.write(f"✍️ **저자:** {st.session_state.result['author']}")
-    box.info(f"💬 **AILY의 한마디:** {st.session_state.result['comment']}")
-
-    st.chat_message("assistant").write(
-        "마음에 드셨나요? 다 읽고 나면 꼭 후기 들려주세요!"
-    )
-
-    if st.button("📚 다른 책도 추천받기"):
-        st.session_state.result = None
-        st.session_state.status = "thinking"
+        # 3. 랜덤 선택
+        if candidates:
+            selected_book = random.choice(candidates)
+            st.session_state.result = selected_book
+            st.session_state.last_book = selected_book['도서명'] # 이번 책을 '마지막 책'으로 저장
+            st.session_state.status = "happy"
+        else:
+            st.warning("추천할 책이 없어요!")
+        
         st.rerun()
 
 # -------------------------------------------------
-# 10. 아무 선택도 안 했을 때
+# 5. 결과 화면
 # -------------------------------------------------
-if st.session_state.status == "idle":
-    st.info("AILY: 카테고리를 하나 골라주시면 바로 움직일게요!")
-
-# -------------------------------------------------
-# 11. 푸터
-# -------------------------------------------------
-st.write("---")
-st.caption("© 2026 AI Librarian AILY - Simgok Library Project")
+if st.session_state.status == "happy" and st.session_state.result:
+    st.success("### 📖 추천 도서 도착!")
+    st.write(f"**제목:** {st.session_state.result['도서명']}")
+    st.write(f"**저자:** {st.session_state.result['저자']}")
+    st.info(f"💌 **AILY:** {st.session_state.result['한마디']}")
