@@ -3,7 +3,7 @@ import pandas as pd
 import random
 import time
 
-# ✅ [추가] 로그/시간
+# ✅ 로그/시간/HTTP
 import requests
 from datetime import datetime
 from zoneinfo import ZoneInfo
@@ -20,10 +20,12 @@ st.set_page_config(
 # [설정] 구글 스프레드시트 CSV 링크(읽기)
 SHEET_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vSaXBhEqbAxaH2cF6kjW8tXoNLC8Xb430gB9sb_xMjT5HvSe--sXDGUGp-aAOGrU3lQPjZUA2Tu9OlS/pub?gid=0&single=true&output=csv"
 
-# ✅ [추가] 로그 적재 Webhook (Apps Script Web App URL)
-# Streamlit Cloud 사용 시: st.secrets["LOG_WEBHOOK_URL"], st.secrets["LOG_TOKEN"] 권장
+# ✅ (권장) Streamlit Secrets에서 가져오기
 LOG_WEBHOOK_URL = st.secrets.get("LOG_WEBHOOK_URL", "")
 LOG_TOKEN = st.secrets.get("LOG_TOKEN", "")
+
+# ✅ 최대 추천 출력 개수
+MAX_RECO = 3
 
 # -------------------------------------------------
 # 2. 데이터 로드 및 초기화
@@ -32,22 +34,22 @@ LOG_TOKEN = st.secrets.get("LOG_TOKEN", "")
 def load_data():
     try:
         df = pd.read_csv(SHEET_URL)
-        df.columns = df.columns.str.strip()
+        df.columns = df.columns.str.strip()  # 공백 제거
         return df
     except Exception:
         return pd.DataFrame()
 
-# ✅ [추가] 로그 적재 함수
-def append_log(action: str, category: str = "", title: str = ""):
-    # 한국 시간
+# ✅ 로그 적재 함수 (디버그 가능)
+def append_log(action: str, category: str = "", title: str = "", debug: bool = False) -> bool:
     ts = datetime.now(ZoneInfo("Asia/Seoul")).strftime("%Y-%m-%d %H:%M:%S")
 
-    # Webhook 없으면 조용히 스킵(개발 중일 때 편함)
     if not LOG_WEBHOOK_URL:
-        return
+        if debug:
+            st.warning("LOG_WEBHOOK_URL이 비어있어요. Streamlit Secrets 설정을 확인하세요.")
+        return False
 
     payload = {
-        "token": LOG_TOKEN,          # Apps Script에서 검증용(권장)
+        "token": LOG_TOKEN,          # Apps Script에서 검증용
         "timestamp": ts,
         "action": action,
         "category": category or "",
@@ -55,41 +57,48 @@ def append_log(action: str, category: str = "", title: str = ""):
     }
 
     try:
-        requests.post(LOG_WEBHOOK_URL, json=payload, timeout=3)
-    except Exception:
-        # 로그 실패해도 앱이 죽지 않도록(조용히 무시)
-        pass
+        resp = requests.post(LOG_WEBHOOK_URL, json=payload, timeout=5)
+        ok = (resp.status_code == 200)
+        if debug and not ok:
+            st.error(f"로그 적재 실패: HTTP {resp.status_code} / body={resp.text[:200]}")
+        return ok
+    except Exception as e:
+        if debug:
+            st.error(f"로그 요청 예외: {e}")
+        return False
 
-# ✅ [추가] "중복 없이 다음 책" 뽑는 함수
+# ✅ "중복 없이 다음 책" 뽑는 함수
 def pick_next_book(df: pd.DataFrame, category: str, exclude_titles: set[str]):
     filtered = df[df["카테고리"] == category].copy()
     if filtered.empty:
         return None
-
     if exclude_titles:
         filtered = filtered[~filtered["도서명"].isin(exclude_titles)]
-
     if filtered.empty:
         return None
-
-    # 랜덤 1개
     return filtered.sample(1).iloc[0].to_dict()
 
 # 세션 상태 초기화
 if "status" not in st.session_state:
-    st.session_state.status = "idle"
+    st.session_state.status = "idle"  # idle | thinking | happy
 if "result" not in st.session_state:
     st.session_state.result = None
 if "last_book" not in st.session_state:
     st.session_state.last_book = None
 
-# ✅ [추가] 카테고리별 추천 히스토리
-# 형태: { "카테고리A": [ {도서1}, {도서2}, ... ], "카테고리B": [...] }
+# ✅ 카테고리별 추천 히스토리 (누적 출력용)
+# 형태: { "카테고리A": [book1, book2, ...], ... }
 if "reco_by_cat" not in st.session_state:
     st.session_state.reco_by_cat = {}
 
 # -------------------------------------------------
-# 3. 커스텀 CSS
+# (옵션) 디버그 토글
+# -------------------------------------------------
+debug_mode = st.sidebar.checkbox("로그 디버그 모드", value=False)
+st.sidebar.caption("켜면 로그 실패 원인이 화면에 표시돼요.")
+
+# -------------------------------------------------
+# 3. 커스텀 CSS (요청하신 스타일 유지)
 # -------------------------------------------------
 st.markdown("""
     <style>
@@ -161,8 +170,8 @@ with col2:
 # -------------------------------------------------
 st.subheader("📍 오늘의 기분을 골라주세요!")
 
-if not df.empty and '카테고리' in df.columns:
-    categories = df['카테고리'].unique().tolist()
+if not df.empty and "카테고리" in df.columns:
+    categories = df["카테고리"].unique().tolist()
 
     user_choice = st.radio(
         "카테고리를 선택하면 AILY가 움직여요!",
@@ -175,36 +184,36 @@ if not df.empty and '카테고리' in df.columns:
         if st.button("책 찾아오기 (클릭!)"):
             st.session_state.status = "thinking"
 
-            with st.spinner('AILY가 서가에서 열심히 뛰어다니는 중... 🏃💨'):
+            with st.spinner("AILY가 서가에서 열심히 뛰어다니는 중... 🏃💨"):
                 time.sleep(1.2)
 
-            # ✅ [수정] 카테고리별 기존 추천 히스토리 가져오기
-            history = st.session_state.reco_by_cat.get(user_choice, [])
-            already_titles = {b.get("도서명", "") for b in history if b.get("도서명")}
+            # ✅ 현재 카테고리 히스토리(최대 MAX_RECO 유지)
+            history = st.session_state.reco_by_cat.get(user_choice, [])[:MAX_RECO]
 
+            # ✅ 최대 출력 수량 제한(3개) — 여기서도 막아줌(일관성)
+            if len(history) >= MAX_RECO:
+                st.warning(f"이 카테고리는 최대 {MAX_RECO}권까지만 추천해드릴 수 있어요!")
+                append_log("책 찾아오기(제한)", category=user_choice, title="", debug=debug_mode)
+                st.session_state.status = "happy" if history else "idle"
+                st.rerun()
+
+            already_titles = {b.get("도서명", "") for b in history if b.get("도서명")}
             selected_book = pick_next_book(df, user_choice, already_titles)
 
             if selected_book:
-                # ✅ [수정] 히스토리에 "추가" (기존 출력 유지)
                 history.append(selected_book)
+                history = history[:MAX_RECO]
                 st.session_state.reco_by_cat[user_choice] = history
 
                 st.session_state.result = selected_book
-                st.session_state.last_book = selected_book.get('도서명')
-
-                # ✅ [추가] 로그 적재(책 찾아오기)
-                append_log(
-                    action="책 찾아오기",
-                    category=user_choice,
-                    title=selected_book.get("도서명", "")
-                )
+                st.session_state.last_book = selected_book.get("도서명")
+                append_log("책 찾아오기", category=user_choice, title=selected_book.get("도서명", ""), debug=debug_mode)
 
                 st.session_state.status = "happy"
                 st.rerun()
             else:
                 st.warning("어라? 해당 카테고리에 더 이상 추천할 책이 없네요 ㅠㅠ")
-                # ✅ [추가] 로그 적재(책 찾아오기 - 실패도 기록하고 싶다면)
-                append_log(action="책 찾아오기(없음)", category=user_choice, title="")
+                append_log("책 찾아오기(없음)", category=user_choice, title="", debug=debug_mode)
                 st.session_state.status = "idle"
 else:
     st.error("서가가 비어있거나 연결되지 않았어요!")
@@ -214,26 +223,27 @@ else:
 # -------------------------------------------------
 current_cat = st.session_state.get("category_input")
 current_history = st.session_state.reco_by_cat.get(current_cat, []) if current_cat else []
+current_history = current_history[:MAX_RECO]  # ✅ 안전장치
 
 if st.session_state.status == "happy" and current_history:
     st.balloons()
-    st.success(f"### 🎯 AILY가 찾은 '인생 책'!")
+    st.success("### 🎯 AILY가 찾은 '인생 책'!")
 
-    # ✅ [수정] "기존 추천된 도서"를 그대로 유지하면서 "리스트로 출력"
-    # (포맷: 도서명/저자/한마디 유지)
+    # ✅ 기존 추천된 도서 유지 + 누적 출력(최대 3개)
     for idx, book in enumerate(current_history, start=1):
         container = st.container(border=True)
-        title = book.get('도서명', '제목 없음')
-        author = book.get('저자', '저자 미상')
-        comment = book.get('한마디', '코멘트 없음')
+
+        title = book.get("도서명", "제목 없음")
+        author = book.get("저자", "저자 미상")
+        comment = book.get("한마디", "코멘트 없음")
 
         container.write(f"📖 **도서명:** {title}")
         container.write(f"✍️ **저자:** {author}")
         container.info(f"💬 **AILY의 한마디:** {comment}")
+
         if idx < len(current_history):
             container.write("---")
 
-    # ✅ [추가] 마지막(최신) 추천 도서로 멘트 유지
     latest = current_history[-1]
     lt = latest.get("도서명", "이 책")
     st.chat_message("assistant").write(
@@ -242,36 +252,36 @@ if st.session_state.status == "happy" and current_history:
     )
 
     # -----------------------------------------------------------
-    # ✅ [수정] "다른 책도 추천해줘!" 누르면 기존 목록 유지 + 중복 없이 추가
+    # ✅ "다른 책도 추천해줘!" 최대 3개 제한 + 중복 없는 추가 추천
     # -----------------------------------------------------------
     if st.button("다른 책도 추천해줘! (새로고침)"):
         current_cat = st.session_state.get("category_input")
 
         if current_cat and not df.empty:
-            history = st.session_state.reco_by_cat.get(current_cat, [])
-            already_titles = {b.get("도서명", "") for b in history if b.get("도서명")}
+            history = st.session_state.reco_by_cat.get(current_cat, [])[:MAX_RECO]
 
-            new_book = pick_next_book(df, current_cat, already_titles)
-
-            if new_book:
-                history.append(new_book)
-                st.session_state.reco_by_cat[current_cat] = history
-
-                st.session_state.result = new_book
-                st.session_state.last_book = new_book.get('도서명')
-                st.session_state.status = "happy"
-
-                # ✅ [추가] 로그 적재(다른 책도 추천)
-                append_log(
-                    action="다른 책도 추천",
-                    category=current_cat,
-                    title=new_book.get("도서명", "")
-                )
-
-                st.rerun()
+            # ✅ 최대 3개 제한
+            if len(history) >= MAX_RECO:
+                st.warning(f"추천은 최대 {MAX_RECO}권까지만 가능해요! (다른 카테고리도 골라보세요 😊)")
+                append_log("다른 책도 추천(제한)", category=current_cat, title="", debug=debug_mode)
             else:
-                st.warning("이 카테고리에는 더 이상 추천할 책이 없어요!")
-                append_log(action="다른 책도 추천(없음)", category=current_cat, title="")
+                already_titles = {b.get("도서명", "") for b in history if b.get("도서명")}
+                new_book = pick_next_book(df, current_cat, already_titles)
+
+                if new_book:
+                    history.append(new_book)
+                    history = history[:MAX_RECO]
+                    st.session_state.reco_by_cat[current_cat] = history
+
+                    st.session_state.result = new_book
+                    st.session_state.last_book = new_book.get("도서명")
+                    st.session_state.status = "happy"
+
+                    append_log("다른 책도 추천", category=current_cat, title=new_book.get("도서명", ""), debug=debug_mode)
+                    st.rerun()
+                else:
+                    st.warning("이 카테고리에는 더 이상 추천할 책이 없어요!")
+                    append_log("다른 책도 추천(없음)", category=current_cat, title="", debug=debug_mode)
         else:
             st.session_state.status = "idle"
             st.rerun()
