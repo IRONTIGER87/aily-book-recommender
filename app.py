@@ -3,6 +3,11 @@ import pandas as pd
 import random
 import time
 
+# ✅ [추가] 로그/시간
+import requests
+from datetime import datetime
+from zoneinfo import ZoneInfo
+
 # -------------------------------------------------
 # 1. 페이지 기본 설정
 # -------------------------------------------------
@@ -12,8 +17,13 @@ st.set_page_config(
     layout="centered"
 )
 
-# [설정] 구글 스프레드시트 CSV 링크
+# [설정] 구글 스프레드시트 CSV 링크(읽기)
 SHEET_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vSaXBhEqbAxaH2cF6kjW8tXoNLC8Xb430gB9sb_xMjT5HvSe--sXDGUGp-aAOGrU3lQPjZUA2Tu9OlS/pub?gid=0&single=true&output=csv"
+
+# ✅ [추가] 로그 적재 Webhook (Apps Script Web App URL)
+# Streamlit Cloud 사용 시: st.secrets["LOG_WEBHOOK_URL"], st.secrets["LOG_TOKEN"] 권장
+LOG_WEBHOOK_URL = st.secrets.get("LOG_WEBHOOK_URL", "")
+LOG_TOKEN = st.secrets.get("LOG_TOKEN", "")
 
 # -------------------------------------------------
 # 2. 데이터 로드 및 초기화
@@ -22,21 +32,64 @@ SHEET_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vSaXBhEqbAxaH2cF6kj
 def load_data():
     try:
         df = pd.read_csv(SHEET_URL)
-        df.columns = df.columns.str.strip() # 공백 제거 안전장치
+        df.columns = df.columns.str.strip()
         return df
-    except Exception as e:
+    except Exception:
         return pd.DataFrame()
+
+# ✅ [추가] 로그 적재 함수
+def append_log(action: str, category: str = "", title: str = ""):
+    # 한국 시간
+    ts = datetime.now(ZoneInfo("Asia/Seoul")).strftime("%Y-%m-%d %H:%M:%S")
+
+    # Webhook 없으면 조용히 스킵(개발 중일 때 편함)
+    if not LOG_WEBHOOK_URL:
+        return
+
+    payload = {
+        "token": LOG_TOKEN,          # Apps Script에서 검증용(권장)
+        "timestamp": ts,
+        "action": action,
+        "category": category or "",
+        "title": title or "",
+    }
+
+    try:
+        requests.post(LOG_WEBHOOK_URL, json=payload, timeout=3)
+    except Exception:
+        # 로그 실패해도 앱이 죽지 않도록(조용히 무시)
+        pass
+
+# ✅ [추가] "중복 없이 다음 책" 뽑는 함수
+def pick_next_book(df: pd.DataFrame, category: str, exclude_titles: set[str]):
+    filtered = df[df["카테고리"] == category].copy()
+    if filtered.empty:
+        return None
+
+    if exclude_titles:
+        filtered = filtered[~filtered["도서명"].isin(exclude_titles)]
+
+    if filtered.empty:
+        return None
+
+    # 랜덤 1개
+    return filtered.sample(1).iloc[0].to_dict()
 
 # 세션 상태 초기화
 if "status" not in st.session_state:
-    st.session_state.status = "idle" # idle(대기) | thinking(생각) | happy(완료)
+    st.session_state.status = "idle"
 if "result" not in st.session_state:
     st.session_state.result = None
 if "last_book" not in st.session_state:
     st.session_state.last_book = None
 
+# ✅ [추가] 카테고리별 추천 히스토리
+# 형태: { "카테고리A": [ {도서1}, {도서2}, ... ], "카테고리B": [...] }
+if "reco_by_cat" not in st.session_state:
+    st.session_state.reco_by_cat = {}
+
 # -------------------------------------------------
-# 3. 커스텀 CSS (요청하신 스타일 유지)
+# 3. 커스텀 CSS
 # -------------------------------------------------
 st.markdown("""
     <style>
@@ -83,7 +136,6 @@ st.write("---")
 
 df = load_data()
 
-# [레이아웃] 캐릭터(좌) + 말풍선(우)
 col1, col2 = st.columns([1, 2])
 
 with col1:
@@ -109,11 +161,9 @@ with col2:
 # -------------------------------------------------
 st.subheader("📍 오늘의 기분을 골라주세요!")
 
-# 데이터가 있을 때만 실행
 if not df.empty and '카테고리' in df.columns:
     categories = df['카테고리'].unique().tolist()
-    
-    # 라디오 버튼 (key='category_input'으로 세션에 저장됨)
+
     user_choice = st.radio(
         "카테고리를 선택하면 AILY가 움직여요!",
         categories,
@@ -121,86 +171,108 @@ if not df.empty and '카테고리' in df.columns:
         key="category_input"
     )
 
-    # 선택 시 버튼 활성화
     if user_choice:
         if st.button("책 찾아오기 (클릭!)"):
             st.session_state.status = "thinking"
-            
+
             with st.spinner('AILY가 서가에서 열심히 뛰어다니는 중... 🏃💨'):
                 time.sleep(1.2)
-            
-            # [핵심 로직] 필터링 & 중복 방지
-            filtered_books = df[df['카테고리'] == user_choice]
-            candidates = filtered_books.to_dict('records')
 
-            # 직전 추천 도서 제외
-            if len(candidates) > 1 and st.session_state.last_book:
-                candidates = [b for b in candidates if b['도서명'] != st.session_state.last_book]
+            # ✅ [수정] 카테고리별 기존 추천 히스토리 가져오기
+            history = st.session_state.reco_by_cat.get(user_choice, [])
+            already_titles = {b.get("도서명", "") for b in history if b.get("도서명")}
 
-            if candidates:
-                selected_book = random.choice(candidates)
+            selected_book = pick_next_book(df, user_choice, already_titles)
+
+            if selected_book:
+                # ✅ [수정] 히스토리에 "추가" (기존 출력 유지)
+                history.append(selected_book)
+                st.session_state.reco_by_cat[user_choice] = history
+
                 st.session_state.result = selected_book
-                st.session_state.last_book = selected_book['도서명']
+                st.session_state.last_book = selected_book.get('도서명')
+
+                # ✅ [추가] 로그 적재(책 찾아오기)
+                append_log(
+                    action="책 찾아오기",
+                    category=user_choice,
+                    title=selected_book.get("도서명", "")
+                )
+
                 st.session_state.status = "happy"
                 st.rerun()
             else:
-                st.warning("어라? 해당 카테고리에 책이 없네요 ㅠㅠ")
+                st.warning("어라? 해당 카테고리에 더 이상 추천할 책이 없네요 ㅠㅠ")
+                # ✅ [추가] 로그 적재(책 찾아오기 - 실패도 기록하고 싶다면)
+                append_log(action="책 찾아오기(없음)", category=user_choice, title="")
                 st.session_state.status = "idle"
-
 else:
     st.error("서가가 비어있거나 연결되지 않았어요!")
 
 # -------------------------------------------------
 # 7. 결과 출력 (UI 프레임 유지)
 # -------------------------------------------------
-if st.session_state.status == "happy" and st.session_state.result:
-    st.balloons() # 축하 효과
-    
-    st.success(f"### 🎯 AILY가 찾은 '인생 책'!")
-    
-    # 결과 박스
-    container = st.container(border=True)
-    
-    title = st.session_state.result.get('도서명', '제목 없음')
-    author = st.session_state.result.get('저자', '저자 미상')
-    comment = st.session_state.result.get('한마디', '코멘트 없음')
+current_cat = st.session_state.get("category_input")
+current_history = st.session_state.reco_by_cat.get(current_cat, []) if current_cat else []
 
-    container.write(f"📖 **도서명:** {title}")
-    container.write(f"✍️ **저자:** {author}")
-    container.info(f"💬 **AILY의 한마디:** {comment}")
-    
+if st.session_state.status == "happy" and current_history:
+    st.balloons()
+    st.success(f"### 🎯 AILY가 찾은 '인생 책'!")
+
+    # ✅ [수정] "기존 추천된 도서"를 그대로 유지하면서 "리스트로 출력"
+    # (포맷: 도서명/저자/한마디 유지)
+    for idx, book in enumerate(current_history, start=1):
+        container = st.container(border=True)
+        title = book.get('도서명', '제목 없음')
+        author = book.get('저자', '저자 미상')
+        comment = book.get('한마디', '코멘트 없음')
+
+        container.write(f"📖 **도서명:** {title}")
+        container.write(f"✍️ **저자:** {author}")
+        container.info(f"💬 **AILY의 한마디:** {comment}")
+        if idx < len(current_history):
+            container.write("---")
+
+    # ✅ [추가] 마지막(최신) 추천 도서로 멘트 유지
+    latest = current_history[-1]
+    lt = latest.get("도서명", "이 책")
     st.chat_message("assistant").write(
-        f"헤헤, **[{title}]** 이 책은 진짜 강추예요! "
+        f"헤헤, **[{lt}]** 이 책은 진짜 강추예요! "
         "다 읽으시면 저한테 꼭 후기 알려주셔야 해요! 약속~! 🤗✨"
     )
 
     # -----------------------------------------------------------
-    # [수정된 부분] 버튼 클릭 시 같은 카테고리에서 다시 뽑기
+    # ✅ [수정] "다른 책도 추천해줘!" 누르면 기존 목록 유지 + 중복 없이 추가
     # -----------------------------------------------------------
     if st.button("다른 책도 추천해줘! (새로고침)"):
-        # 1. 현재 선택된 카테고리 가져오기
         current_cat = st.session_state.get("category_input")
-        
+
         if current_cat and not df.empty:
-            # 2. 로직 재실행 (필터링 및 추첨)
-            filtered_books = df[df['카테고리'] == current_cat]
-            candidates = filtered_books.to_dict('records')
+            history = st.session_state.reco_by_cat.get(current_cat, [])
+            already_titles = {b.get("도서명", "") for b in history if b.get("도서명")}
 
-            # 직전 추천 도서 제외 (연속 중복 방지)
-            if len(candidates) > 1 and st.session_state.last_book:
-                candidates = [b for b in candidates if b['도서명'] != st.session_state.last_book]
+            new_book = pick_next_book(df, current_cat, already_titles)
 
-            if candidates:
-                new_book = random.choice(candidates)
+            if new_book:
+                history.append(new_book)
+                st.session_state.reco_by_cat[current_cat] = history
+
                 st.session_state.result = new_book
-                st.session_state.last_book = new_book['도서명']
-                # 상태는 'happy' 그대로 유지
+                st.session_state.last_book = new_book.get('도서명')
                 st.session_state.status = "happy"
+
+                # ✅ [추가] 로그 적재(다른 책도 추천)
+                append_log(
+                    action="다른 책도 추천",
+                    category=current_cat,
+                    title=new_book.get("도서명", "")
+                )
+
                 st.rerun()
             else:
                 st.warning("이 카테고리에는 더 이상 추천할 책이 없어요!")
+                append_log(action="다른 책도 추천(없음)", category=current_cat, title="")
         else:
-            # 혹시라도 카테고리 선택이 풀렸다면 초기화
             st.session_state.status = "idle"
             st.rerun()
 
