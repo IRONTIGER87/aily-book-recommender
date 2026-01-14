@@ -17,7 +17,7 @@ st.set_page_config(
 
 # [설정]
 CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vSaXBhEqbAxaH2cF6kjW8tXoNLC8Xb430gB9sb_xMjT5HvSe--sXDGUGp-aAOGrU3lQPjZUA2Tu9OlS/pub?gid=0&single=true&output=csv"
-SPREADSHEET_NAME = "도서 리스트"    # 구글 시트 제목
+SPREADSHEET_NAME = "도서 리스트"    # 구글 시트 제목 (정확해야 함!)
 
 # -------------------------------------------------
 # 2. 데이터 로드 및 구글 시트 연결
@@ -33,38 +33,43 @@ def load_data():
         return pd.DataFrame()
 
 def log_to_sheet(action_name):
-    """구글 시트 로그 저장 (Streamlit Secrets 사용)"""
+    """구글 시트 로그 저장 (Invalid JWT 에러 해결 버전)"""
     try:
-        # 1. 구글 연동 (Secrets에서 키 가져오기)
-        # 중요: Secrets에 저장된 키 정보를 사전(dict) 형태로 가져옵니다.
+        # 1. Secrets 확인
         if "gcp_service_account" not in st.secrets:
-            st.error("❌ Streamlit Secrets 설정이 안 되어 있습니다! [Settings] -> [Secrets]를 확인해주세요.")
+            st.error("❌ Streamlit Secrets 설정이 필요합니다!")
             return
 
+        # 2. 키 정보 가져오기 및 '줄바꿈' 문자 수동 보정 (핵심!)
+        # st.secrets 객체를 일반 dict로 변환
         key_dict = dict(st.secrets["gcp_service_account"])
         
-        # 줄바꿈 문자 오류 방지 (가장 중요한 부분!)
-        key_dict["private_key"] = key_dict["private_key"].replace("\\n", "\n")
+        # [!!!여기가 제일 중요합니다!!!]
+        # TOML에서 문자열로 들어온 \n을 실제 줄바꿈 문자로 변경해줍니다.
+        if "private_key" in key_dict:
+            key_dict["private_key"] = key_dict["private_key"].replace("\\n", "\n")
 
+        # 3. 구글 연동
         scope = ['https://spreadsheets.google.com/feeds', 'https://www.googleapis.com/auth/drive']
         creds = ServiceAccountCredentials.from_json_keyfile_dict(key_dict, scope)
         client = gspread.authorize(creds)
 
-        # 2. 시트 열기
+        # 4. 시트 열기
         sh = client.open(SPREADSHEET_NAME)
         
-        # 3. 워크시트 선택 (없으면 생성)
+        # 5. 워크시트 선택 (없으면 생성)
         try:
             worksheet = sh.worksheet("log")
         except:
             worksheet = sh.add_worksheet(title="log", rows="1000", cols="5")
             worksheet.append_row(["날짜_시간", "이벤트"])
         
-        # 4. 데이터 쓰기
+        # 6. 데이터 쓰기
         now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         worksheet.append_row([now, action_name])
         
     except Exception as e:
+        # 에러 내용을 자세히 출력해서 디버깅
         st.error(f"❌ 로그 저장 에러: {e}")
 
 # 세션 상태 초기화
@@ -93,7 +98,6 @@ st.markdown("""
     """, unsafe_allow_html=True)
 
 def get_aily_image(state):
-    # 단순히 파일명만 반환 (파일 존재 여부는 HTML태그에서 처리되지 않으므로)
     if state == "idle": return "aily_idle.png"
     elif state == "thinking": return "aily_thinking.png"
     elif state == "happy": return "aily_happy.png"
@@ -111,7 +115,6 @@ col1, col2 = st.columns([1, 2])
 
 with col1:
     img_placeholder = st.empty()
-    # 이미지 표시 (안전장치 없이 바로 표시 시도 - Secrets 문제 해결이 우선이므로)
     try:
         current_img = get_aily_image(st.session_state.status)
         img_placeholder.image(current_img, use_container_width=True)
@@ -133,7 +136,7 @@ if not df.empty and '카테고리' in df.columns:
     user_choice = st.radio("카테고리 선택", categories, index=None, key="category_input")
 
     def pick_a_book(trigger_source):
-        # 1. 로그 저장
+        # 1. 로그 저장 시도 (에러나도 앱은 멈추지 않게 try-except는 함수 내부에 있음)
         log_to_sheet(trigger_source)
 
         # 2. 이미지 변경
