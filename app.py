@@ -2,11 +2,11 @@ import streamlit as st
 import pandas as pd
 import random
 import time
+import json
 from datetime import datetime
-import os
 
 # -------------------------------------------------
-# 1. 페이지 기본 설정 (가장 먼저 실행)
+# 1. 페이지 기본 설정
 # -------------------------------------------------
 st.set_page_config(
     page_title="귀염둥이 사서 AILY의 추천",
@@ -15,13 +15,12 @@ st.set_page_config(
 )
 
 # -------------------------------------------------
-# 2. 라이브러리 및 시트 연결 안전 로딩
+# 2. 라이브러리 및 설정 로드
 # -------------------------------------------------
-# 설정값
 CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vSaXBhEqbAxaH2cF6kjW8tXoNLC8Xb430gB9sb_xMjT5HvSe--sXDGUGp-aAOGrU3lQPjZUA2Tu9OlS/pub?gid=0&single=true&output=csv"
 SPREADSHEET_NAME = "도서 리스트"
 
-# gspread 라이브러리 안전 가져오기
+# gspread 안전 로딩
 try:
     import gspread
     from oauth2client.service_account import ServiceAccountCredentials
@@ -40,47 +39,48 @@ def load_data():
         return pd.DataFrame()
 
 def log_to_sheet(action_name):
-    """구글 시트 로그 저장 (실패해도 앱은 죽지 않게 처리)"""
+    """구글 시트 로그 저장 (JSON 통째로 읽기 방식)"""
     if not GSPREAD_AVAILABLE:
-        st.warning("⚠️ gspread 라이브러리가 설치되지 않아 로그를 저장할 수 없습니다. (requirements.txt 확인 필요)")
+        st.warning("⚠️ gspread 라이브러리가 설치되지 않았습니다.")
         return
 
     try:
-        # 1. Secrets 확인
-        if "gcp_service_account" not in st.secrets:
-            st.error("⚠️ Secrets 설정이 없습니다. 로그 저장을 건너뜁니다.")
+        # [핵심 변경] Secrets에서 JSON 문자열 통째로 가져오기
+        if "files" not in st.secrets or "service_account_json" not in st.secrets["files"]:
+            st.error("❌ Secrets 설정 오류: [files] 아래에 service_account_json이 없습니다.")
             return
 
-        # 2. 키 정보 가져오기 & 줄바꿈 보정
-        key_dict = dict(st.secrets["gcp_service_account"])
-        if "private_key" in key_dict:
-            key_dict["private_key"] = key_dict["private_key"].replace("\\n", "\n")
+        # JSON 문자열을 파이썬 딕셔너리로 변환 (여기서 줄바꿈 자동 해결됨)
+        json_str = st.secrets["files"]["service_account_json"]
+        key_dict = json.loads(json_str)
 
-        # 3. 구글 연동
+        # 구글 연동
         scope = ['https://spreadsheets.google.com/feeds', 'https://www.googleapis.com/auth/drive']
         creds = ServiceAccountCredentials.from_json_keyfile_dict(key_dict, scope)
         client = gspread.authorize(creds)
 
-        # 4. 시트 열기
+        # 시트 열기
         sh = client.open(SPREADSHEET_NAME)
         
-        # 5. 워크시트 선택 (없으면 생성)
+        # 워크시트 선택
         try:
             worksheet = sh.worksheet("log")
         except:
             worksheet = sh.add_worksheet(title="log", rows="1000", cols="5")
             worksheet.append_row(["날짜_시간", "이벤트"])
         
-        # 6. 데이터 쓰기
+        # 데이터 쓰기
         now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         worksheet.append_row([now, action_name])
         
+    except json.JSONDecodeError:
+        st.error("❌ Secrets에 붙여넣은 내용이 올바른 JSON 형식이 아닙니다. 복사 범위를 확인해주세요.")
     except Exception as e:
-        # 치명적인 에러라도 앱이 멈추지 않게 warning으로 표시
-        st.warning(f"⚠️ 로그 저장 중 오류 발생 (기능은 계속 작동함): {e}")
+        # 에러 내용을 화면에 표시
+        st.error(f"❌ 로그 저장 에러: {e}")
 
 # -------------------------------------------------
-# 3. 상태 초기화 및 CSS
+# 3. 메인 로직 (기존과 동일)
 # -------------------------------------------------
 if "status" not in st.session_state:
     st.session_state.status = "idle"
@@ -103,16 +103,6 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# -------------------------------------------------
-# 4. 메인 화면 로직
-# -------------------------------------------------
-st.title("🌟 AILY의 반짝반짝 도서 추천")
-st.write("---")
-
-# 라이브러리 설치 확인 메시지 (디버깅용)
-if not GSPREAD_AVAILABLE:
-    st.error("🚨 중요: 'requirements.txt' 파일에 'gspread'와 'oauth2client'가 없거나 설치되지 않았습니다.")
-
 df = load_data()
 
 # 이미지 헬퍼
@@ -123,7 +113,6 @@ col1, col2 = st.columns([1, 2])
 
 with col1:
     img_placeholder = st.empty()
-    # 이미지 파일 존재 여부와 상관없이 시도 (에러나면 텍스트 표시)
     try:
         current_img = get_daily_image(st.session_state.status)
         img_placeholder.image(current_img, use_container_width=True)
@@ -145,7 +134,7 @@ if not df.empty and '카테고리' in df.columns:
     user_choice = st.radio("카테고리 선택", categories, index=None, key="category_input")
 
     def pick_a_book(trigger_source):
-        # 1. 로그 저장 (실패해도 무시)
+        # 1. 로그 저장
         log_to_sheet(trigger_source)
 
         # 2. 이미지 변경
