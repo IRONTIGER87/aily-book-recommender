@@ -254,7 +254,7 @@ if st.session_state.status == "happy" and current_history:
     # -----------------------------------------------------------
     # ✅ "다른 책도 추천해줘!" 최대 3개 제한 + 중복 없는 추가 추천
     # -----------------------------------------------------------
-    if st.button("다른 책도 추천해줘! (새로고침)"):
+    if st.button("다른 책도 추천해줘! (클릭)"):
         current_cat = st.session_state.get("category_input")
 
         if current_cat and not df.empty:
