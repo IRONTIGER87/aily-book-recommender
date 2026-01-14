@@ -83,4 +83,121 @@ st.markdown("""
         width: 100%; border-radius: 20px; height: 3em;
         background-color: #4A90E2; color: white; font-weight: bold; transition: 0.3s;
     }
-    .stButton>button:hover { background-color: #
+    .stButton>button:hover { background-color: #357ABD; transform: scale(1.02); }
+    .book-card {
+        background-color: white; padding: 20px; border-radius: 15px;
+        margin-bottom: 15px; box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        border-left: 5px solid #4A90E2;
+    }
+    </style>
+    """, unsafe_allow_html=True)
+
+def get_aily_image(state):
+    # 단순히 파일명만 반환 (파일 존재 여부는 HTML태그에서 처리되지 않으므로)
+    if state == "idle": return "aily_idle.png"
+    elif state == "thinking": return "aily_thinking.png"
+    elif state == "happy": return "aily_happy.png"
+    return "aily_idle.png"
+
+# -------------------------------------------------
+# 4. 메인 화면
+# -------------------------------------------------
+st.title("🌟 AILY의 반짝반짝 도서 추천")
+st.write("---")
+
+df = load_data()
+
+col1, col2 = st.columns([1, 2])
+
+with col1:
+    img_placeholder = st.empty()
+    # 이미지 표시 (안전장치 없이 바로 표시 시도 - Secrets 문제 해결이 우선이므로)
+    try:
+        current_img = get_aily_image(st.session_state.status)
+        img_placeholder.image(current_img, use_container_width=True)
+    except:
+        img_placeholder.write("🤖")
+
+with col2:
+    if st.session_state.status == "idle":
+        st.chat_message("assistant").write("AILY: 카테고리를 골라주세요!")
+    elif st.session_state.status == "thinking":
+        st.chat_message("assistant").write("AILY: 서가 뒤지는 중! 🏃💨")
+    elif st.session_state.status == "happy":
+        st.chat_message("assistant").write("AILY: 추천 도서 도착! 😎")
+
+st.subheader("📍 오늘의 기분을 골라주세요!")
+
+if not df.empty and '카테고리' in df.columns:
+    categories = df['카테고리'].unique().tolist()
+    user_choice = st.radio("카테고리 선택", categories, index=None, key="category_input")
+
+    def pick_a_book(trigger_source):
+        # 1. 로그 저장
+        log_to_sheet(trigger_source)
+
+        # 2. 이미지 변경
+        try: img_placeholder.image("aily_thinking.png", use_container_width=True)
+        except: pass
+        st.session_state.status = "thinking"
+        
+        with st.spinner('AILY가 책 찾는 중...'):
+            time.sleep(1.2)
+        
+        filtered_books = df[df['카테고리'] == st.session_state.category_input]
+        candidates = filtered_books.to_dict('records')
+        current_titles = [book['도서명'] for book in st.session_state.history]
+        candidates = [b for b in candidates if b['도서명'] not in current_titles]
+
+        if not candidates:
+             candidates = filtered_books.to_dict('records')
+
+        if candidates:
+            selected_book = random.choice(candidates)
+            st.session_state.history.append(selected_book)
+            if len(st.session_state.history) > 3:
+                st.session_state.history.pop(0)
+            st.session_state.status = "happy"
+        else:
+            st.warning("책이 없어요!")
+            st.session_state.status = "idle"
+
+    if len(st.session_state.history) == 0:
+        if user_choice:
+            if st.button("책 찾아오기 (클릭!)"):
+                pick_a_book("책 찾아오기 클릭")
+                st.rerun()
+    else:
+        pass 
+
+else:
+    st.error("데이터 로드 실패")
+
+if st.session_state.status == "happy" and st.session_state.history:
+    st.write("---")
+    st.success(f"### 📚 AILY의 추천 리스트 ({len(st.session_state.history)}/3)")
+
+    for idx, book in enumerate(st.session_state.history):
+        title = book.get('도서명', '')
+        author = book.get('저자', '')
+        comment = book.get('한마디', '')
+        
+        st.markdown(f"""
+        <div class="book-card">
+            <h4>📖 {idx+1}. {title}</h4>
+            <p>✍️ {author}</p>
+            <p style="color: #555;">💬 {comment}</p>
+        </div>
+        """, unsafe_allow_html=True)
+
+    if st.button("다른 책도 추천해줘! (리스트 추가)"):
+        if st.session_state.get("category_input"):
+            pick_a_book("다른 책 추천 클릭")
+            st.rerun()
+        else:
+            st.warning("카테고리 선택 필요!")
+
+    if st.button("리스트 비우기"):
+        st.session_state.history = []
+        st.session_state.status = "idle"
+        st.rerun()
