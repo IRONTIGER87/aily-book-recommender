@@ -1,0 +1,13 @@
+{
+  "type": "service_account",
+  "project_id": "aily-book-bot",
+  "private_key_id": "17ee02821d0db1025f055dc57adb5621c689ed42",
+  "private_key": "-----BEGIN PRIVATE KEY-----\nMIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQCRVslFdC68vAFS\ngKPqjtCLsZAPjheZ0jm1A4xx6Y7OTGi9F0Mr6q3jUYNUaYMnd7Ycpw5RD0XMfaWM\n1ABlZWLaPi9CWc1qHjbM0S8+zXU6hjtHg+fvKByqNng2U3DVUkwPZz7mjLZcefgB\nVUqz00t2DZ9MdZFTohXdbl2sJMtr8L++h6KFW/HgwK0PZD9uU7Ew/vN9vxFpG4Hp\ntWI6lwn8Tw4KYL5Q+XRTQeSJGWphaWmoYJlnB90RpBALH+fd/h81AnKReMaZeSZ4\nJ4VUmSvbYqX9ufmU7+scRJYfBlluzMmkurlvLqHxNyXJ0tEHA6rEe818/jTkQVgy\ny+mqo6sVAgMBAAECggEAAvSVfy4PopLddq9a+0gQLDxeG5LeHqiht8aXXTGh+nFJ\n/UkIeqTOXb2omAIql+uH7n6PJ0183ohSN3zld9UJ9OTS0oc/oBV2iSUFJZfJTHlc\n9zqoGrrhaldVNnWX6R6VTAg4xTi99JTJBZiVvku2UHOSdlw6/6JfeMiSaw+3Jei6\n13Q5R9ejZbgJ6I9pHwPW3EL9G9jVcyZWah/LzBveNFSVVV9xl7R2aEmhNBfGC9Uz\nUAL0QOmNDJyASDuhn8CY+2K9phi4gtl8I5W4kKb0TAlq7VMzocmsWrJoukDqgf3n\nY3x5vESdZSPeq1UuL0E22TarptU/52HFsvHlHxvV+QKBgQDLz3G2Y04AA7KUb8Kj\nhlP6tCcVaTP4d6exgfwz/MvoX6OL+KW6D4KVz57+mqjTHGqwP1/J9UQzJoQ/p6Sg\nn4LetibVAgVnvPnYCiwL4nJPHAl+wYQlzW7uInFPpkZv6GCtHX9bfYfn5GaSNB0T\nibJACa7kVccdhW9zPzruGPLuUwKBgQC2jlIZdHqwaw7vp/VLyNKogmEEVsNz3y4a\nVmTt+LQFA/6O4lNa/ZRuL56DgOKrUrbqnC10KQ+9vLkw75moLcph7GfnKhS+GG6Y\noRtVY2OCp/ejsuagv3Dz8LbT2upIgJSSFIM7et5fCym+5UQ9eE+aq+jKYpeCkRVN\n9EjesKBD9wKBgQCbBeIPgf9dYXKfF1csPMt54TftQEUolBL4oM9t17ZdvQlQOUQN\nfyirvO3J6WfKlE3OW5YHrsg+Q+jJ5kEBb/MCZfipgs0LuCEuI6aXL5oU9FWAlb9n\nZZggCBC6LdZb3pxScSJjO9t5FjCyunL3XoA312WxBlHa8ZjxR0ISwuVdQwKBgA5v\n/QA0XQucu+aqMtUWgcp/3SpZrkV4rg25LWxAkgQfh79HGO6GRXndXDzsMYD5Hqw5\nQ8L/CFaqGT9Mg6twS6Qo7SK0CkXqary5aQ78uD76B7SzjlfCLC2uqNbiZkrrmFRh\nOOu4UOPVXyzQtu/hlvIVjGiNGYxi6vtqSWULNPGLAoGATHEZ86o86G3ERJqDBYCG\nyiXUDr5nxrjUTFRXIJOmEElJ6dPvPLi5zNXBpMGo+IBs8+o5V7zVHIi1Fl+KGI4A\ngmHfvkCecIjrrietNO76MgEJFyLP5UUpaxX5VE2Y3YF6jAiIXFJJfTY/vtnbqAq2\nSK52Vzl0pfkcTeYnEd735Ug=\n-----END PRIVATE KEY-----\n",
+  "client_email": "daily-counter@aily-book-bot.iam.gserviceaccount.com",
+  "client_id": "106046615229536482469",
+  "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+  "token_uri": "https://oauth2.googleapis.com/token",
+  "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
+  "client_x509_cert_url": "https://www.googleapis.com/robot/v1/metadata/x509/daily-counter%40aily-book-bot.iam.gserviceaccount.com",
+  "universe_domain": "googleapis.com"
+}
