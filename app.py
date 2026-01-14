@@ -2,12 +2,11 @@ import streamlit as st
 import pandas as pd
 import random
 import time
-import gspread
-from oauth2client.service_account import ServiceAccountCredentials
 from datetime import datetime
+import os
 
 # -------------------------------------------------
-# 1. 페이지 기본 설정
+# 1. 페이지 기본 설정 (가장 먼저 실행)
 # -------------------------------------------------
 st.set_page_config(
     page_title="귀염둥이 사서 AILY의 추천",
@@ -15,13 +14,21 @@ st.set_page_config(
     layout="centered"
 )
 
-# [설정]
+# -------------------------------------------------
+# 2. 라이브러리 및 시트 연결 안전 로딩
+# -------------------------------------------------
+# 설정값
 CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vSaXBhEqbAxaH2cF6kjW8tXoNLC8Xb430gB9sb_xMjT5HvSe--sXDGUGp-aAOGrU3lQPjZUA2Tu9OlS/pub?gid=0&single=true&output=csv"
-SPREADSHEET_NAME = "도서 리스트"    # 구글 시트 제목 (정확해야 함!)
+SPREADSHEET_NAME = "도서 리스트"
 
-# -------------------------------------------------
-# 2. 데이터 로드 및 구글 시트 연결
-# -------------------------------------------------
+# gspread 라이브러리 안전 가져오기
+try:
+    import gspread
+    from oauth2client.service_account import ServiceAccountCredentials
+    GSPREAD_AVAILABLE = True
+except ImportError:
+    GSPREAD_AVAILABLE = False
+
 @st.cache_data(ttl=60)
 def load_data():
     try:
@@ -33,19 +40,19 @@ def load_data():
         return pd.DataFrame()
 
 def log_to_sheet(action_name):
-    """구글 시트 로그 저장 (Invalid JWT 에러 해결 버전)"""
+    """구글 시트 로그 저장 (실패해도 앱은 죽지 않게 처리)"""
+    if not GSPREAD_AVAILABLE:
+        st.warning("⚠️ gspread 라이브러리가 설치되지 않아 로그를 저장할 수 없습니다. (requirements.txt 확인 필요)")
+        return
+
     try:
         # 1. Secrets 확인
         if "gcp_service_account" not in st.secrets:
-            st.error("❌ Streamlit Secrets 설정이 필요합니다!")
+            st.error("⚠️ Secrets 설정이 없습니다. 로그 저장을 건너뜁니다.")
             return
 
-        # 2. 키 정보 가져오기 및 '줄바꿈' 문자 수동 보정 (핵심!)
-        # st.secrets 객체를 일반 dict로 변환
+        # 2. 키 정보 가져오기 & 줄바꿈 보정
         key_dict = dict(st.secrets["gcp_service_account"])
-        
-        # [!!!여기가 제일 중요합니다!!!]
-        # TOML에서 문자열로 들어온 \n을 실제 줄바꿈 문자로 변경해줍니다.
         if "private_key" in key_dict:
             key_dict["private_key"] = key_dict["private_key"].replace("\\n", "\n")
 
@@ -69,18 +76,17 @@ def log_to_sheet(action_name):
         worksheet.append_row([now, action_name])
         
     except Exception as e:
-        # 에러 내용을 자세히 출력해서 디버깅
-        st.error(f"❌ 로그 저장 에러: {e}")
+        # 치명적인 에러라도 앱이 멈추지 않게 warning으로 표시
+        st.warning(f"⚠️ 로그 저장 중 오류 발생 (기능은 계속 작동함): {e}")
 
-# 세션 상태 초기화
+# -------------------------------------------------
+# 3. 상태 초기화 및 CSS
+# -------------------------------------------------
 if "status" not in st.session_state:
     st.session_state.status = "idle"
 if "history" not in st.session_state:
     st.session_state.history = []
 
-# -------------------------------------------------
-# 3. CSS & 이미지 헬퍼
-# -------------------------------------------------
 st.markdown("""
     <style>
     .main { background-color: #f0f2f6; }
@@ -97,26 +103,29 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-def get_aily_image(state):
-    if state == "idle": return "aily_idle.png"
-    elif state == "thinking": return "aily_thinking.png"
-    elif state == "happy": return "aily_happy.png"
-    return "aily_idle.png"
-
 # -------------------------------------------------
-# 4. 메인 화면
+# 4. 메인 화면 로직
 # -------------------------------------------------
 st.title("🌟 AILY의 반짝반짝 도서 추천")
 st.write("---")
 
+# 라이브러리 설치 확인 메시지 (디버깅용)
+if not GSPREAD_AVAILABLE:
+    st.error("🚨 중요: 'requirements.txt' 파일에 'gspread'와 'oauth2client'가 없거나 설치되지 않았습니다.")
+
 df = load_data()
+
+# 이미지 헬퍼
+def get_daily_image(state):
+    return f"aily_{state}.png"
 
 col1, col2 = st.columns([1, 2])
 
 with col1:
     img_placeholder = st.empty()
+    # 이미지 파일 존재 여부와 상관없이 시도 (에러나면 텍스트 표시)
     try:
-        current_img = get_aily_image(st.session_state.status)
+        current_img = get_daily_image(st.session_state.status)
         img_placeholder.image(current_img, use_container_width=True)
     except:
         img_placeholder.write("🤖")
@@ -136,7 +145,7 @@ if not df.empty and '카테고리' in df.columns:
     user_choice = st.radio("카테고리 선택", categories, index=None, key="category_input")
 
     def pick_a_book(trigger_source):
-        # 1. 로그 저장 시도 (에러나도 앱은 멈추지 않게 try-except는 함수 내부에 있음)
+        # 1. 로그 저장 (실패해도 무시)
         log_to_sheet(trigger_source)
 
         # 2. 이미지 변경
@@ -172,7 +181,6 @@ if not df.empty and '카테고리' in df.columns:
                 st.rerun()
     else:
         pass 
-
 else:
     st.error("데이터 로드 실패")
 
